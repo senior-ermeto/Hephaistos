@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/andonboard.tsx","./src/components/loginpage.tsx","./src/components/machinesmanager.tsx","./src/components/shopfloorterminal.tsx","./src/components/usersmanager.tsx","./src/components/weeklydashboard.tsx","./src/services/api.ts","./src/types/index.ts"],"version":"5.9.3"}

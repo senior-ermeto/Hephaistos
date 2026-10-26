@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+
+# Database & Local Env
+.env
+*.db
+*.sqlite3
+postgres_data/
+backups/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/build/
+.npm
+*.log
+
+# Android
+mobile-android/.gradle/
+mobile-android/local.properties
+mobile-android/**/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IDEs & OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
