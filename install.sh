@@ -5,7 +5,7 @@
 # ==============================================================================
 # Usage :
 #   ./install.sh              -> Menu interactif
-#   ./install.sh install      -> Installation complète (Docker + App + BDD)
+#   ./install.sh install      -> Installation complète (Docker + Ports Auto + App + BDD)
 #   ./install.sh update       -> Mise à jour (Backup BDD + Git pull + Rebuild)
 #   ./install.sh uninstall    -> Désinstallation propre (Conteneurs, Images, Volumes)
 #   ./install.sh status       -> État des conteneurs et santé des services
@@ -78,6 +78,123 @@ get_compose_cmd() {
     fi
 }
 
+# Vérifie si un port est déjà occupé sur la machine hôte (hors conteneurs hephaistos_*)
+is_port_in_use() {
+    local port="$1"
+
+    # Si le port est déjà utilisé par un de nos propres conteneurs hephaistos_*, il est valide pour nous
+    if command -v docker >/dev/null 2>&1; then
+        if docker ps --filter "name=^hephaistos_" --format '{{.Ports}}' 2>/dev/null | grep -Eq "(:|0\.0\.0\.0:|:::)${port}->"; then
+            return 1
+        fi
+        # Vérifier si un AUTRE conteneur Docker utilise ce port
+        if docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -v "^hephaistos_" | grep -Eq "(:|0\.0\.0\.0:|:::)${port}->"; then
+            return 0
+        fi
+    fi
+
+    # Vérification via ss (standard Debian)
+    if command -v ss >/dev/null 2>&1; then
+        if ss -tuln 2>/dev/null | awk '{print $5}' | grep -Eq "(:|\.)${port}$"; then
+            return 0
+        fi
+    fi
+
+    # Vérification via lsof ou netstat en fallback
+    if command -v lsof >/dev/null 2>&1; then
+        if lsof -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
+            return 0
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        if netstat -tuln 2>/dev/null | awk '{print $4}' | grep -Eq "(:|\.)${port}$"; then
+            return 0
+        fi
+    fi
+
+    # Test d'ouverture socket bash /dev/tcp en dernier recours
+    if (echo >/dev/tcp/127.0.0.1/"${port}") >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
+# Trouve automatiquement un port libre à partir d'un port souhaité
+find_free_port() {
+    local desired_port="$1"
+    local candidate="$desired_port"
+
+    while is_port_in_use "$candidate"; do
+        if [ "$candidate" -eq 80 ]; then
+            candidate=8080
+        else
+            candidate=$((candidate + 1))
+        fi
+    done
+
+    echo "$candidate"
+}
+
+# Met à jour ou ajoute une variable dans .env
+set_env_var() {
+    local key="$1"
+    local val="$2"
+    if grep -q "^${key}=" .env 2>/dev/null; then
+        sed -i "s|^${key}=.*|${key}=${val}|" .env
+    else
+        echo "${key}=${val}" >> .env
+    fi
+}
+
+# Vérifie et attribue automatiquement des ports disponibles dans .env
+resolve_and_assign_ports() {
+    log_info "Vérification de la disponibilité des ports réseau sur le serveur..."
+
+    set -a
+    [ -f .env ] && . ./.env
+    set +a
+
+    local req_pg_port="${POSTGRES_PORT:-5432}"
+    local req_backend_port="${BACKEND_PORT:-8000}"
+    local req_app_port="${APP_PORT:-80}"
+
+    # 1. Port PostgreSQL
+    local free_pg_port
+    free_pg_port=$(find_free_port "$req_pg_port")
+    if [ "$free_pg_port" != "$req_pg_port" ]; then
+        log_warn "Le port PostgreSQL ${req_pg_port} est déjà occupé -> Attribution automatique du port libre : ${free_pg_port}"
+    else
+        log_success "Port PostgreSQL disponible : ${free_pg_port}"
+    fi
+    set_env_var "POSTGRES_PORT" "$free_pg_port"
+
+    # 2. Port Backend FastAPI
+    local free_backend_port
+    free_backend_port=$(find_free_port "$req_backend_port")
+    if [ "$free_backend_port" = "$free_pg_port" ]; then
+        free_backend_port=$(find_free_port $((free_backend_port + 1)))
+    fi
+    if [ "$free_backend_port" != "$req_backend_port" ]; then
+        log_warn "Le port Backend ${req_backend_port} est déjà occupé -> Attribution automatique du port libre : ${free_backend_port}"
+    else
+        log_success "Port Backend FastAPI disponible : ${free_backend_port}"
+    fi
+    set_env_var "BACKEND_PORT" "$free_backend_port"
+
+    # 3. Port Application Web (Nginx)
+    local free_app_port
+    free_app_port=$(find_free_port "$req_app_port")
+    while [ "$free_app_port" = "$free_pg_port" ] || [ "$free_app_port" = "$free_backend_port" ]; do
+        free_app_port=$(find_free_port $((free_app_port + 1)))
+    done
+    if [ "$free_app_port" != "$req_app_port" ]; then
+        log_warn "Le port Web ${req_app_port} est déjà occupé -> Attribution automatique du port libre : ${free_app_port}"
+    else
+        log_success "Port Web HTTP disponible : ${free_app_port}"
+    fi
+    set_env_var "APP_PORT" "$free_app_port"
+}
+
 # Installation de Docker sur Debian si non présent
 ensure_docker_debian() {
     if command -v docker >/dev/null 2>&1 && [ -n "$(get_compose_cmd)" ]; then
@@ -87,7 +204,7 @@ ensure_docker_debian() {
 
     log_info "Installation de Docker et Docker Compose pour Debian/Ubuntu..."
     run_privileged apt-get update -y
-    run_privileged apt-get install -y ca-certificates curl gnupg lsb-release git openssl
+    run_privileged apt-get install -y ca-certificates curl gnupg lsb-release git openssl iproute2
 
     if ! command -v docker >/dev/null 2>&1; then
         run_privileged install -m 0755 -d /etc/apt/keyrings
@@ -115,7 +232,7 @@ ensure_docker_debian() {
     log_success "Docker et Docker Compose ont été installés avec succès."
 }
 
-# Création et sécurisation du fichier .env
+# Création et sécurisation du fichier .env + sélection automatique des ports
 setup_env() {
     if [ ! -f ".env" ]; then
         log_info "Génération du fichier de configuration .env..."
@@ -130,8 +247,11 @@ setup_env() {
 
         log_success "Fichier .env créé avec des clés cryptographiques uniques."
     else
-        log_info "Fichier .env existant détecté et conservé."
+        log_info "Fichier .env existant détecté."
     fi
+
+    # Toujours vérifier et corriger automatiquement les ports si l'un d'eux est déjà alloué
+    resolve_and_assign_ports
 }
 
 # Sauvegarde de la base PostgreSQL
@@ -146,7 +266,6 @@ do_backup() {
         mkdir -p backups
         TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
         BACKUP_FILE="backups/hephaistos_backup_${TIMESTAMP}.sql.gz"
-        # Charger les variables de .env
         set -a
         [ -f .env ] && . ./.env
         set +a
@@ -192,6 +311,7 @@ do_install() {
     echo -e "${GREEN}======================================================================${NC}"
     echo -e "  🌐 Interface Web        : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
     echo -e "  📡 API & Swagger Docs   : ${CYAN}http://${SERVER_IP}:${BACKEND_PORT:-8000}/docs${NC}"
+    echo -e "  🗄️  Port PostgreSQL Hôte : ${CYAN}${POSTGRES_PORT:-5432}${NC}"
     echo -e "  📱 URL Serveur Android  : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
     echo -e "  👤 Compte Admin par déf.: ${YELLOW}${FIRST_ADMIN_USERNAME:-admin}${NC}"
     echo -e "  🔑 Mot de passe Admin   : ${YELLOW}${FIRST_ADMIN_PASSWORD:-admin123}${NC}"
@@ -220,15 +340,24 @@ do_update() {
         cp -rf logo/* frontend/public/logo/ 2>/dev/null || true
     fi
 
-    # 4. Reconstruction et redémarrage sans perte de données
+    # 4. Vérification automatique des ports avant relance
+    setup_env
+
+    # 5. Reconstruction et redémarrage sans perte de données
     COMPOSE_CMD=$(get_compose_cmd)
     log_info "Reconstruction des images Docker et redémarrage des services..."
     $COMPOSE_CMD up -d --build --remove-orphans
 
-    # 5. Nettoyage des anciennes images inutilisées
+    # 6. Nettoyage des anciennes images inutilisées
     docker image prune -f >/dev/null 2>&1 || true
 
+    set -a
+    [ -f .env ] && . ./.env
+    set +a
+    SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+
     log_success "Mise à jour de HÉPHAÏSTOS appliquée avec succès !"
+    echo -e "  🌐 Interface Web : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
 }
 
 # Commande : UNINSTALL
@@ -267,6 +396,16 @@ do_status() {
     COMPOSE_CMD=$(get_compose_cmd)
     if [ -n "$COMPOSE_CMD" ]; then
         $COMPOSE_CMD ps
+        if [ -f .env ]; then
+            echo ""
+            set -a
+            . ./.env
+            set +a
+            SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+            echo -e "  🌐 Port Web (APP_PORT)          : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
+            echo -e "  📡 Port API (BACKEND_PORT)      : ${CYAN}http://${SERVER_IP}:${BACKEND_PORT:-8000}/docs${NC}"
+            echo -e "  🗄️  Port PostgreSQL (POSTGRES_PORT): ${CYAN}${POSTGRES_PORT:-5432}${NC}"
+        fi
     else
         log_error "Docker Compose n'est pas installé."
     fi
