@@ -78,29 +78,25 @@ get_compose_cmd() {
     fi
 }
 
-# Vérifie si un port est déjà occupé sur la machine hôte (hors conteneurs hephaistos_*)
+# Vérifie si un port est déjà occupé sur la machine hôte
 is_port_in_use() {
     local port="$1"
 
-    # Si le port est déjà utilisé par un de nos propres conteneurs hephaistos_*, il est valide pour nous
+    # 1. Vérifier si un conteneur Docker actif utilise ce port
     if command -v docker >/dev/null 2>&1; then
-        if docker ps --filter "name=^hephaistos_" --format '{{.Ports}}' 2>/dev/null | grep -Eq "(:|0\.0\.0\.0:|:::)${port}->"; then
-            return 1
-        fi
-        # Vérifier si un AUTRE conteneur Docker utilise ce port
-        if docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -v "^hephaistos_" | grep -Eq "(:|0\.0\.0\.0:|:::)${port}->"; then
+        if docker ps --format '{{.Ports}}' 2>/dev/null | grep -Eq "(:|0\.0\.0\.0:|:::)${port}->"; then
             return 0
         fi
     fi
 
-    # Vérification via ss (standard Debian)
+    # 2. Vérification via ss (standard Debian IPv4 + IPv6)
     if command -v ss >/dev/null 2>&1; then
         if ss -tuln 2>/dev/null | awk '{print $5}' | grep -Eq "(:|\.)${port}$"; then
             return 0
         fi
     fi
 
-    # Vérification via lsof ou netstat en fallback
+    # 3. Vérification via lsof ou netstat en fallback
     if command -v lsof >/dev/null 2>&1; then
         if lsof -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
             return 0
@@ -111,7 +107,7 @@ is_port_in_use() {
         fi
     fi
 
-    # Test d'ouverture socket bash /dev/tcp en dernier recours
+    # 4. Test socket bash /dev/tcp
     if (echo >/dev/tcp/127.0.0.1/"${port}") >/dev/null 2>&1; then
         return 0
     fi
@@ -135,7 +131,7 @@ find_free_port() {
     echo "$candidate"
 }
 
-# Met à jour ou ajoute une variable dans .env
+# Met à jour une variable dans .env ET l'exporte dans l'environnement courant
 set_env_var() {
     local key="$1"
     local val="$2"
@@ -144,10 +140,16 @@ set_env_var() {
     else
         echo "${key}=${val}" >> .env
     fi
+    export "${key}=${val}"
 }
 
 # Vérifie et attribue automatiquement des ports disponibles dans .env
 resolve_and_assign_ports() {
+    log_info "Nettoyage des anciens conteneurs Héphaïstos avant vérification des ports..."
+    if command -v docker >/dev/null 2>&1; then
+        docker rm -f hephaistos_frontend hephaistos_backend hephaistos_db >/dev/null 2>&1 || true
+    fi
+
     log_info "Vérification de la disponibilité des ports réseau sur le serveur..."
 
     set -a
@@ -171,9 +173,9 @@ resolve_and_assign_ports() {
     # 2. Port Backend FastAPI
     local free_backend_port
     free_backend_port=$(find_free_port "$req_backend_port")
-    if [ "$free_backend_port" = "$free_pg_port" ]; then
+    while [ "$free_backend_port" = "$free_pg_port" ]; do
         free_backend_port=$(find_free_port $((free_backend_port + 1)))
-    fi
+    done
     if [ "$free_backend_port" != "$req_backend_port" ]; then
         log_warn "Le port Backend ${req_backend_port} est déjà occupé -> Attribution automatique du port libre : ${free_backend_port}"
     else
@@ -193,6 +195,11 @@ resolve_and_assign_ports() {
         log_success "Port Web HTTP disponible : ${free_app_port}"
     fi
     set_env_var "APP_PORT" "$free_app_port"
+
+    # Recharger .env mis à jour dans l'environnement du script
+    set -a
+    . ./.env
+    set +a
 }
 
 # Installation de Docker sur Debian si non présent
@@ -224,7 +231,6 @@ ensure_docker_debian() {
     run_privileged systemctl enable docker
     run_privileged systemctl start docker
 
-    # Ajout de l'utilisateur courant au groupe docker si non root
     if [ "$(id -u)" -ne 0 ] && [ -n "${USER:-}" ]; then
         run_privileged usermod -aG docker "$USER" || true
     fi
@@ -238,7 +244,6 @@ setup_env() {
         log_info "Génération du fichier de configuration .env..."
         cp .env.example .env
 
-        # Génération de clés aléatoires sécurisées
         RAND_DB_PASS=$(openssl rand -hex 16 2>/dev/null || tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 24)
         RAND_JWT_KEY=$(openssl rand -hex 32 2>/dev/null || tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 48)
 
@@ -250,7 +255,6 @@ setup_env() {
         log_info "Fichier .env existant détecté."
     fi
 
-    # Toujours vérifier et corriger automatiquement les ports si l'un d'eux est déjà alloué
     resolve_and_assign_ports
 }
 
@@ -294,25 +298,22 @@ do_install() {
     fi
 
     COMPOSE_CMD=$(get_compose_cmd)
-    log_info "Construction et lancement des conteneurs Docker..."
-    $COMPOSE_CMD up -d --build
+    log_info "Construction et lancement des conteneurs Docker (Ports: Web=${APP_PORT}, API=${BACKEND_PORT}, DB=${POSTGRES_PORT})..."
+    $COMPOSE_CMD up -d --build --force-recreate
 
     log_info "Attente du démarrage complet des services..."
-    sleep 5
+    sleep 4
 
     SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
-    set -a
-    [ -f .env ] && . ./.env
-    set +a
 
     echo ""
     echo -e "${GREEN}======================================================================${NC}"
     echo -e "${GREEN}  INSTALLATION DE HÉPHAÏSTOS TERMINÉE AVEC SUCCÈS !${NC}"
     echo -e "${GREEN}======================================================================${NC}"
-    echo -e "  🌐 Interface Web        : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
-    echo -e "  📡 API & Swagger Docs   : ${CYAN}http://${SERVER_IP}:${BACKEND_PORT:-8000}/docs${NC}"
-    echo -e "  🗄️  Port PostgreSQL Hôte : ${CYAN}${POSTGRES_PORT:-5432}${NC}"
-    echo -e "  📱 URL Serveur Android  : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
+    echo -e "  🌐 Interface Web        : ${CYAN}http://${SERVER_IP}:${APP_PORT}${NC}"
+    echo -e "  📡 API & Swagger Docs   : ${CYAN}http://${SERVER_IP}:${BACKEND_PORT}/docs${NC}"
+    echo -e "  🗄️  Port PostgreSQL Hôte : ${CYAN}${POSTGRES_PORT}${NC}"
+    echo -e "  📱 URL Serveur Android  : ${CYAN}http://${SERVER_IP}:${APP_PORT}${NC}"
     echo -e "  👤 Compte Admin par déf.: ${YELLOW}${FIRST_ADMIN_USERNAME:-admin}${NC}"
     echo -e "  🔑 Mot de passe Admin   : ${YELLOW}${FIRST_ADMIN_PASSWORD:-admin123}${NC}"
     echo -e "${GREEN}======================================================================${NC}"
@@ -329,7 +330,9 @@ do_update() {
     # 2. Récupération des mises à jour Git si dépôt configuré
     if [ -d ".git" ] && git remote -v | grep -q "origin"; then
         log_info "Récupération des dernières modifications depuis GitHub (git pull)..."
-        git pull --ff-only || log_warn "Impossible d'effectuer git pull automatiquement (modifications locales ou branche non suivie)."
+        git checkout -- install.sh 2>/dev/null || true
+        git pull --ff-only || log_warn "Impossible d'effectuer git pull automatiquement."
+        chmod +x install.sh 2>/dev/null || true
     else
         log_info "Pas de dépôt distant configuré, mise à jour à partir des fichiers locaux..."
     fi
@@ -346,18 +349,15 @@ do_update() {
     # 5. Reconstruction et redémarrage sans perte de données
     COMPOSE_CMD=$(get_compose_cmd)
     log_info "Reconstruction des images Docker et redémarrage des services..."
-    $COMPOSE_CMD up -d --build --remove-orphans
+    $COMPOSE_CMD up -d --build --force-recreate --remove-orphans
 
     # 6. Nettoyage des anciennes images inutilisées
     docker image prune -f >/dev/null 2>&1 || true
 
-    set -a
-    [ -f .env ] && . ./.env
-    set +a
     SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
     log_success "Mise à jour de HÉPHAÏSTOS appliquée avec succès !"
-    echo -e "  🌐 Interface Web : ${CYAN}http://${SERVER_IP}:${APP_PORT:-80}${NC}"
+    echo -e "  🌐 Interface Web : ${CYAN}http://${SERVER_IP}:${APP_PORT}${NC}"
 }
 
 # Commande : UNINSTALL
