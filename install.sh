@@ -329,9 +329,9 @@ do_update() {
 
     # 2. Récupération des mises à jour Git si dépôt configuré
     if [ -d ".git" ] && git remote -v | grep -q "origin"; then
-        log_info "Récupération des dernières modifications depuis GitHub (git pull)..."
-        git checkout -- install.sh 2>/dev/null || true
-        git pull --ff-only || log_warn "Impossible d'effectuer git pull automatiquement."
+        log_info "Récupération des dernières modifications depuis GitHub..."
+        git config core.fileMode false 2>/dev/null || true
+        git fetch origin main && git reset --hard origin/main || log_warn "Impossible de synchroniser automatiquement depuis origin/main."
         chmod +x install.sh 2>/dev/null || true
     else
         log_info "Pas de dépôt distant configuré, mise à jour à partir des fichiers locaux..."
