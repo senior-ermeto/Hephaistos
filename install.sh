@@ -281,6 +281,26 @@ do_backup() {
     fi
 }
 
+# Lance docker compose up avec réessai automatique en cas de timeout réseau Docker Hub
+run_compose_up() {
+    local compose_cmd
+    compose_cmd=$(get_compose_cmd)
+    local max_retries=3
+    local attempt=1
+
+    while [ "$attempt" -le "$max_retries" ]; do
+        if $compose_cmd up -d --build --force-recreate --remove-orphans; then
+            return 0
+        fi
+        log_warn "Tentative ${attempt}/${max_retries} échouée (timeout réseau Docker Hub possible). Nouvel essai dans 3 secondes..."
+        sleep 3
+        attempt=$((attempt + 1))
+    done
+
+    log_error "Impossible de construire/démarrer les conteneurs après ${max_retries} tentatives."
+    return 1
+}
+
 # Commande : INSTALL
 do_install() {
     print_banner
@@ -297,9 +317,8 @@ do_install() {
         log_success "Logos Senior Aerospace Ermeto synchronisés."
     fi
 
-    COMPOSE_CMD=$(get_compose_cmd)
     log_info "Construction et lancement des conteneurs Docker (Ports: Web=${APP_PORT}, API=${BACKEND_PORT}, DB=${POSTGRES_PORT})..."
-    $COMPOSE_CMD up -d --build --force-recreate
+    run_compose_up
 
     log_info "Attente du démarrage complet des services..."
     sleep 4
@@ -347,9 +366,8 @@ do_update() {
     setup_env
 
     # 5. Reconstruction et redémarrage sans perte de données
-    COMPOSE_CMD=$(get_compose_cmd)
     log_info "Reconstruction des images Docker et redémarrage des services..."
-    $COMPOSE_CMD up -d --build --force-recreate --remove-orphans
+    run_compose_up
 
     # 6. Nettoyage des anciennes images inutilisées
     docker image prune -f >/dev/null 2>&1 || true
