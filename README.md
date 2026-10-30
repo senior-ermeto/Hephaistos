@@ -73,13 +73,10 @@ chmod +x install.sh
 ./install.sh uninstall
 ```
 
-### Comptes par défaut au premier démarrage :
+### Compte Administrateur par défaut au premier démarrage :
 | Rôle | Identifiant | Mot de passe | Code PIN Android |
 | :--- | :--- | :--- | :--- |
 | **Administrateur** | `admin` | `admin123` | `0000` |
-| **Responsable Îlot** | `c.martin` | `ermeto2026` | `1111` |
-| **Opérateur Atelier** | `m.dubois` | `ermeto2026` | `1234` |
-| **Opérateur Atelier** | `s.laurent` | `ermeto2026` | `2345` |
 
 ---
 

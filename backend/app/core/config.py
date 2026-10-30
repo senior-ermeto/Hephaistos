@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     FIRST_ADMIN_PASSWORD: str = "admin123"
     FIRST_ADMIN_FIRSTNAME: str = "Administrateur"
     FIRST_ADMIN_LASTNAME: str = "Ermeto"
-    SEED_DEMO_DATA: bool = True
+    SEED_DEMO_DATA: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

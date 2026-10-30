@@ -37,7 +37,7 @@ services:
       FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-admin123}
       FIRST_ADMIN_FIRSTNAME: ${FIRST_ADMIN_FIRSTNAME:-Administrateur}
       FIRST_ADMIN_LASTNAME: ${FIRST_ADMIN_LASTNAME:-Ermeto}
-      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
       TZ: Europe/Paris
     ports:
       - "${BACKEND_PORT:-8000}:8000"

@@ -9,8 +9,8 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,12 +27,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillQuickCredentials = (u: string, p: string) => {
-    setUsername(u);
-    setPassword(p);
-    setError(null);
   };
 
   return (
@@ -217,39 +211,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
-
-          {/* Accès rapide démo */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-              Comptes de démonstration préconfigurés :
-            </p>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => fillQuickCredentials('admin', 'admin123')}
-                className="text-xs py-2 px-2.5 rounded-lg bg-slate-100 hover:bg-[#00305B] hover:text-white text-slate-700 font-medium transition text-center"
-              >
-                Admin
-                <span className="block text-[10px] opacity-75">admin / admin123</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => fillQuickCredentials('c.martin', 'ermeto2026')}
-                className="text-xs py-2 px-2.5 rounded-lg bg-slate-100 hover:bg-[#00305B] hover:text-white text-slate-700 font-medium transition text-center"
-              >
-                Manager
-                <span className="block text-[10px] opacity-75">c.martin</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => fillQuickCredentials('m.dubois', 'ermeto2026')}
-                className="text-xs py-2 px-2.5 rounded-lg bg-slate-100 hover:bg-[#00305B] hover:text-white text-slate-700 font-medium transition text-center"
-              >
-                Opérateur
-                <span className="block text-[10px] opacity-75">m.dubois</span>
-              </button>
-            </div>
-          </div>
         </div>
       </motion.div>
     </div>

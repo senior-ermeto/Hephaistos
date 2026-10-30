@@ -548,7 +548,16 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 text-sm">
-                {data.machine_rows.map((row) => {
+                {data.machine_rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-16 text-center text-slate-500">
+                      Aucune machine n&apos;est encore configurée. Rendez-vous dans l&apos;onglet{' '}
+                      <strong className="text-[#00305B]">« Machines »</strong> pour créer vos
+                      machines.
+                    </td>
+                  </tr>
+                ) : (
+                  data.machine_rows.map((row) => {
                   const currentSt =
                     STATUS_CONFIG[row.current_status] || STATUS_CONFIG.PAUSE;
                   return (
@@ -717,7 +726,8 @@ export const WeeklyDashboard: React.FC<WeeklyDashboardProps> = ({
                       </td>
                     </tr>
                   );
-                })}
+                  })
+                )}
               </tbody>
             </table>
           </div>
