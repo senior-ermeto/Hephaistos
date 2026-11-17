@@ -187,7 +187,7 @@ export const App: React.FC = () => {
               </button>
             )}
 
-            {isAdmin && (
+            {isAdminOrManager && (
               <button
                 onClick={() => setActiveView('users')}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
@@ -306,7 +306,7 @@ export const App: React.FC = () => {
               <span>Machines</span>
             </button>
           )}
-          {isAdmin && (
+          {isAdminOrManager && (
             <button
               onClick={() => setActiveView('users')}
               className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap flex items-center gap-1.5 ${

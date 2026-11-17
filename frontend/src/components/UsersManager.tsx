@@ -236,28 +236,30 @@ export const UsersManager: React.FC<UsersManagerProps> = ({
                     </span>
                   </td>
                   <td className="py-4 px-5 text-right">
-                    <div className="inline-flex items-center gap-2">
-                      <button
-                        onClick={() => openEditModal(u)}
-                        className="p-2 rounded-lg bg-slate-100 hover:bg-[#00305B] text-slate-700 hover:text-white transition"
-                        title="Modifier l'utilisateur"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      {u.id !== currentUser.id && (
+                    {!(u.role === 'ADMIN' && currentUser.role !== 'ADMIN') && (
+                      <div className="inline-flex items-center gap-2">
                         <button
-                          onClick={() => handleToggleActive(u)}
-                          className={`p-2 rounded-lg transition ${
-                            u.is_active
-                              ? 'bg-red-50 hover:bg-red-600 text-red-600 hover:text-white'
-                              : 'bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white'
-                          }`}
-                          title={u.is_active ? 'Désactiver le compte' : 'Réactiver le compte'}
+                          onClick={() => openEditModal(u)}
+                          className="p-2 rounded-lg bg-slate-100 hover:bg-[#00305B] text-slate-700 hover:text-white transition"
+                          title="Modifier l'utilisateur"
                         >
-                          <Power className="w-4 h-4" />
+                          <Edit3 className="w-4 h-4" />
                         </button>
-                      )}
-                    </div>
+                        {u.id !== currentUser.id && (
+                          <button
+                            onClick={() => handleToggleActive(u)}
+                            className={`p-2 rounded-lg transition ${
+                              u.is_active
+                                ? 'bg-red-50 hover:bg-red-600 text-red-600 hover:text-white'
+                                : 'bg-emerald-50 hover:bg-emerald-600 text-emerald-600 hover:text-white'
+                            }`}
+                            title={u.is_active ? 'Désactiver le compte' : 'Réactiver le compte'}
+                          >
+                            <Power className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -365,7 +367,9 @@ export const UsersManager: React.FC<UsersManagerProps> = ({
                     >
                       <option value="OPERATOR">Opérateur Android / Atelier</option>
                       <option value="MANAGER">Responsable d&apos;Îlot (Web)</option>
-                      <option value="ADMIN">Administrateur Complet</option>
+                      {currentUser.role === 'ADMIN' && (
+                        <option value="ADMIN">Administrateur Complet</option>
+                      )}
                     </select>
                   </div>
                 </div>
